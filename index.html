@@ -290,6 +290,21 @@
     text-align: right;
   }
 
+  .autosave-card {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 14px 16px;
+    margin-bottom: 16px;
+  }
+  .autosave-status {
+    font-size: 13px;
+    color: var(--muted);
+    margin-bottom: 10px;
+  }
+  .autosave-status.on { color: var(--home); font-weight: 600; }
+  .autosave-status.warn { color: var(--danger); font-weight: 600; }
+
   .print-only { display: none; }
 
   @media print {
@@ -349,7 +364,10 @@
         <input type="time" id="manEnd" value="17:00">
       </div>
     </div>
-    <button class="save-manual" id="saveManual">Add entry</button>
+    <div class="row" style="gap:8px;">
+      <button class="save-manual" id="saveManual" style="flex:1;">Add entry</button>
+      <button class="save-manual" id="cancelManual" style="flex:0 0 auto; display:none; background:var(--muted);">Cancel</button>
+    </div>
   </div>
 
   <div class="section-label no-print">Financial year report</div>
@@ -388,8 +406,14 @@
   <button class="export-btn no-print" id="backupImportBtn">Restore data from backup</button>
   <input type="file" id="backupFileInput" accept="application/json" style="display:none">
 
+  <div class="autosave-card no-print" id="autoSaveCard">
+    <div class="autosave-status" id="autoSaveStatus">Auto-save: off</div>
+    <button class="export-btn" id="autoSaveToggleBtn" style="margin-bottom:0;">Enable auto-save to file</button>
+  </div>
+
   <div class="section-label no-print">Recent entries</div>
   <div class="log-list no-print" id="logList"></div>
+  <div class="manual-toggle no-print" id="logShowAllToggle">Show all entries</div>
 
   <div class="section-label no-print">Vehicle use for work</div>
   <div class="trip-entry no-print" id="tripEntry">
@@ -426,10 +450,14 @@
       </div>
     </div>
     <div class="trip-km-preview" id="tripKmPreview"></div>
-    <button class="save-trip" id="saveTrip">Add trip</button>
+    <div class="row" style="gap:8px;">
+      <button class="save-trip" id="saveTrip" style="flex:1;">Add trip</button>
+      <button class="save-trip" id="cancelTrip" style="flex:0 0 auto; display:none; background:var(--muted);">Cancel</button>
+    </div>
   </div>
 
   <div class="log-list no-print" id="tripList"></div>
+  <div class="manual-toggle no-print" id="tripShowAllToggle">Show all trips</div>
 
   <!-- Printable report, populated on export -->
   <div class="print-only" id="printReport"></div>
@@ -514,6 +542,7 @@
     } catch (e) {
       console.error('Save failed', e);
     }
+    writeAutoSaveFile();
   }
 
   async function saveTrips() {
@@ -522,6 +551,7 @@
     } catch (e) {
       console.error('Save trips failed', e);
     }
+    writeAutoSaveFile();
   }
 
   async function saveActive() {
@@ -534,6 +564,140 @@
     } catch (e) {
       console.error('Save active failed', e);
     }
+    writeAutoSaveFile();
+  }
+
+  // --- Auto-save to a local file (Chrome/Edge desktop only) ---
+  // Browsers other than desktop Chromium (Chrome, Edge, Opera) do not allow a
+  // web page to write silently to a file on disk, so this feature only
+  // activates where the browser supports it. Elsewhere, use the manual
+  // "Download data backup" button instead.
+  const fsApiSupported = 'showSaveFilePicker' in window;
+  let autoSaveHandle = null;
+
+  function idbOpen() {
+    return new Promise((resolve, reject) => {
+      const req = indexedDB.open('work-tracker-db', 1);
+      req.onupgradeneeded = () => req.result.createObjectStore('handles');
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+  }
+  async function idbSet(key, value) {
+    const db = await idbOpen();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('handles', 'readwrite');
+      tx.objectStore('handles').put(value, key);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  }
+  async function idbGet(key) {
+    const db = await idbOpen();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('handles', 'readonly');
+      const req = tx.objectStore('handles').get(key);
+      req.onsuccess = () => resolve(req.result || null);
+      req.onerror = () => reject(req.error);
+    });
+  }
+  async function idbDelete(key) {
+    const db = await idbOpen();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction('handles', 'readwrite');
+      tx.objectStore('handles').delete(key);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  }
+
+  function setAutoSaveStatus(text, cls) {
+    const el = $('autoSaveStatus');
+    el.textContent = text;
+    el.className = 'autosave-status' + (cls ? ' ' + cls : '');
+  }
+
+  async function writeAutoSaveFile() {
+    if (!autoSaveHandle) return;
+    try {
+      const perm = await autoSaveHandle.queryPermission({ mode: 'readwrite' });
+      if (perm !== 'granted') {
+        setAutoSaveStatus('Auto-save paused — click "Reconnect" to resume', 'warn');
+        $('autoSaveToggleBtn').textContent = 'Reconnect auto-save';
+        return;
+      }
+      const data = { sessions, trips, active, savedAt: new Date().toISOString() };
+      const writable = await autoSaveHandle.createWritable();
+      await writable.write(JSON.stringify(data, null, 2));
+      await writable.close();
+      setAutoSaveStatus(`Auto-save on — writing to ${autoSaveHandle.name}`, 'on');
+      $('autoSaveToggleBtn').textContent = 'Turn off auto-save';
+    } catch (e) {
+      console.error('Auto-save write failed', e);
+      setAutoSaveStatus('Auto-save error — check file access', 'warn');
+    }
+  }
+
+  async function initAutoSave() {
+    if (!fsApiSupported) {
+      setAutoSaveStatus('Auto-save to file isn\'t supported in this browser. Use "Download data backup" regularly instead.');
+      $('autoSaveToggleBtn').textContent = 'Not available in this browser';
+      $('autoSaveToggleBtn').disabled = true;
+      return;
+    }
+    try {
+      const handle = await idbGet('autoSaveHandle');
+      if (handle) {
+        autoSaveHandle = handle;
+        const perm = await handle.queryPermission({ mode: 'readwrite' });
+        if (perm === 'granted') {
+          setAutoSaveStatus(`Auto-save on — writing to ${handle.name}`, 'on');
+          $('autoSaveToggleBtn').textContent = 'Turn off auto-save';
+        } else {
+          setAutoSaveStatus('Auto-save paused — click "Reconnect" to resume', 'warn');
+          $('autoSaveToggleBtn').textContent = 'Reconnect auto-save';
+        }
+      } else {
+        setAutoSaveStatus('Auto-save: off');
+      }
+    } catch (e) {
+      setAutoSaveStatus('Auto-save: off');
+    }
+  }
+
+  async function toggleAutoSave() {
+    if (!fsApiSupported) return;
+    if (autoSaveHandle) {
+      const perm = await autoSaveHandle.queryPermission({ mode: 'readwrite' });
+      if (perm !== 'granted') {
+        // Reconnect: re-request permission on the existing handle
+        try {
+          const newPerm = await autoSaveHandle.requestPermission({ mode: 'readwrite' });
+          if (newPerm === 'granted') {
+            await writeAutoSaveFile();
+            return;
+          }
+        } catch (e) { /* fall through to disable */ }
+      }
+      // Turn off
+      autoSaveHandle = null;
+      await idbDelete('autoSaveHandle');
+      setAutoSaveStatus('Auto-save: off');
+      $('autoSaveToggleBtn').textContent = 'Enable auto-save to file';
+      return;
+    }
+    // Enable: ask user to pick/create the backup file
+    try {
+      const handle = await window.showSaveFilePicker({
+        suggestedName: 'work-location-backup.json',
+        types: [{ description: 'JSON backup', accept: { 'application/json': ['.json'] } }]
+      });
+      autoSaveHandle = handle;
+      await idbSet('autoSaveHandle', handle);
+      await writeAutoSaveFile();
+    } catch (e) {
+      // user cancelled the picker — leave auto-save off
+    }
   }
 
   function populateFySelect() {
@@ -542,9 +706,9 @@
     const currentFy = fyForDate(now);
     const currentStartYear = parseInt(currentFy.split('-')[0], 10);
     sel.innerHTML = '';
-    // offer current FY and previous 3
-    for (let i = 0; i < 4; i++) {
-      const startYear = currentStartYear - i;
+    // offer current FY and next 5
+    for (let i = 0; i <= 5; i++) {
+      const startYear = currentStartYear + i;
       const label = `${startYear}-${String((startYear + 1) % 100).padStart(2, '0')}`;
       const opt = document.createElement('option');
       opt.value = label;
@@ -623,13 +787,20 @@
   async function deleteSession(id) {
     sessions = sessions.filter(s => s.id !== id);
     await saveSessions();
+    if (editingSessionId === id) cancelManualEdit();
     renderLog();
     renderSummary();
   }
 
+  let showAllSessions = false;
+  let editingSessionId = null;
+
   function renderLog() {
     const list = $('logList');
-    const sorted = [...sessions].sort((a, b) => new Date(b.start) - new Date(a.start)).slice(0, 30);
+    const allSorted = [...sessions].sort((a, b) => new Date(b.start) - new Date(a.start));
+    const sorted = showAllSessions ? allSorted : allSorted.slice(0, 5);
+    $('logShowAllToggle').style.display = allSorted.length > 5 ? 'block' : 'none';
+    $('logShowAllToggle').textContent = showAllSessions ? 'Show recent only' : `Show all entries (${allSorted.length})`;
     if (sorted.length === 0) {
       list.innerHTML = '<div class="empty-note">No entries yet. Clock in above or add a past day manually.</div>';
       return;
@@ -640,7 +811,7 @@
       const dur = hoursBetween(s.start, s.end);
       return `
         <div class="log-item">
-          <div class="left">
+          <div class="left edit-target" data-id="${s.id}" style="cursor:pointer;">
             <span class="dot ${s.location}"></span>
             <div>
               <div class="date">${fmtDate(start)}</div>
@@ -655,8 +826,38 @@
       `;
     }).join('');
     list.querySelectorAll('.del').forEach(btn => {
-      btn.addEventListener('click', () => deleteSession(btn.getAttribute('data-id')));
+      btn.addEventListener('click', (e) => { e.stopPropagation(); deleteSession(btn.getAttribute('data-id')); });
     });
+    list.querySelectorAll('.edit-target').forEach(el => {
+      el.addEventListener('click', () => startManualEdit(el.getAttribute('data-id')));
+    });
+  }
+
+  function startManualEdit(id) {
+    const s = sessions.find(x => x.id === id);
+    if (!s) return;
+    editingSessionId = id;
+    const start = new Date(s.start);
+    const end = new Date(s.end);
+    $('manDate').value = start.toISOString().slice(0, 10);
+    $('manLocation').value = s.location;
+    $('manStart').value = String(start.getHours()).padStart(2, '0') + ':' + String(start.getMinutes()).padStart(2, '0');
+    $('manEnd').value = String(end.getHours()).padStart(2, '0') + ':' + String(end.getMinutes()).padStart(2, '0');
+    $('manualEntry').classList.add('open');
+    $('saveManual').textContent = 'Save changes';
+    $('cancelManual').style.display = 'block';
+    $('manualEntry').scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+
+  function cancelManualEdit() {
+    editingSessionId = null;
+    $('saveManual').textContent = 'Add entry';
+    $('cancelManual').style.display = 'none';
+    $('manualEntry').classList.remove('open');
+    $('manDate').value = new Date().toISOString().slice(0, 10);
+    $('manLocation').value = 'home';
+    $('manStart').value = '09:00';
+    $('manEnd').value = '17:00';
   }
 
   function sessionsInFy(fyLabel) {
@@ -675,9 +876,15 @@
     });
   }
 
+  let showAllTrips = false;
+  let editingTripId = null;
+
   function renderTripList() {
     const list = $('tripList');
-    const sorted = [...trips].sort((a, b) => new Date(b.date) - new Date(a.date)).slice(0, 30);
+    const allSorted = [...trips].sort((a, b) => new Date(b.date) - new Date(a.date));
+    const sorted = showAllTrips ? allSorted : allSorted.slice(0, 5);
+    $('tripShowAllToggle').style.display = allSorted.length > 5 ? 'block' : 'none';
+    $('tripShowAllToggle').textContent = showAllTrips ? 'Show recent only' : `Show all trips (${allSorted.length})`;
     if (sorted.length === 0) {
       list.innerHTML = '<div class="empty-note">No trips logged yet.</div>';
       return;
@@ -687,10 +894,11 @@
       const km = t.odoEnd - t.odoStart;
       return `
         <div class="trip-item">
-          <div>
+          <div class="edit-target" data-id="${t.id}" style="cursor:pointer;">
             <div class="route">${t.origin} → ${t.destination}</div>
             <div class="purpose">${t.purpose}</div>
             <div class="date">${fmtDate(d)}</div>
+            <div class="date">${t.odoStart.toFixed(1)} → ${t.odoEnd.toFixed(1)} km</div>
           </div>
           <div>
             <div class="km">${km} km</div>
@@ -700,13 +908,46 @@
       `;
     }).join('');
     list.querySelectorAll('.del').forEach(btn => {
-      btn.addEventListener('click', () => deleteTrip(btn.getAttribute('data-id')));
+      btn.addEventListener('click', (e) => { e.stopPropagation(); deleteTrip(btn.getAttribute('data-id')); });
     });
+    list.querySelectorAll('.edit-target').forEach(el => {
+      el.addEventListener('click', () => startTripEdit(el.getAttribute('data-id')));
+    });
+  }
+
+  function startTripEdit(id) {
+    const t = trips.find(x => x.id === id);
+    if (!t) return;
+    editingTripId = id;
+    $('tripDate').value = t.date;
+    $('tripOrigin').value = t.origin;
+    $('tripDestination').value = t.destination;
+    $('tripPurpose').value = t.purpose;
+    $('tripOdoStart').value = t.odoStart;
+    $('tripOdoEnd').value = t.odoEnd;
+    updateTripKmPreview();
+    $('saveTrip').textContent = 'Save changes';
+    $('cancelTrip').style.display = 'block';
+    $('tripEntry').scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+
+  function cancelTripEdit() {
+    editingTripId = null;
+    $('saveTrip').textContent = 'Add trip';
+    $('cancelTrip').style.display = 'none';
+    $('tripDate').value = new Date().toISOString().slice(0, 10);
+    $('tripOrigin').value = '';
+    $('tripDestination').value = '';
+    $('tripPurpose').value = '';
+    $('tripOdoStart').value = '';
+    $('tripOdoEnd').value = '';
+    $('tripKmPreview').textContent = '';
   }
 
   async function deleteTrip(id) {
     trips = trips.filter(t => t.id !== id);
     await saveTrips();
+    if (editingTripId === id) cancelTripEdit();
     renderTripList();
     renderSummary();
   }
@@ -847,6 +1088,15 @@
     $('manualEntry').classList.toggle('open');
   });
 
+  function sessionOverlapExists(start, end, excludeId) {
+    return sessions.some(s => {
+      if (s.id === excludeId) return false;
+      const sStart = new Date(s.start);
+      const sEnd = new Date(s.end);
+      return start < sEnd && sStart < end;
+    });
+  }
+
   $('saveManual').addEventListener('click', async () => {
     const dateVal = $('manDate').value;
     const loc = $('manLocation').value;
@@ -855,17 +1105,46 @@
     if (!dateVal || !startVal || !endVal) return;
     const start = new Date(`${dateVal}T${startVal}:00`);
     const end = new Date(`${dateVal}T${endVal}:00`);
-    if (end <= start) return;
-    sessions.push({
-      id: 's' + Date.now(),
-      location: loc,
-      start: start.toISOString(),
-      end: end.toISOString()
-    });
+    if (end <= start) {
+      alert('End time must be after start time.');
+      return;
+    }
+    if (sessionOverlapExists(start, end, editingSessionId)) {
+      alert('This overlaps with an existing entry. Check the time or edit the existing entry instead of adding a new one.');
+      return;
+    }
+    if (editingSessionId) {
+      const s = sessions.find(x => x.id === editingSessionId);
+      if (s) {
+        s.location = loc;
+        s.start = start.toISOString();
+        s.end = end.toISOString();
+      }
+      cancelManualEdit();
+    } else {
+      sessions.push({
+        id: 's' + Date.now(),
+        location: loc,
+        start: start.toISOString(),
+        end: end.toISOString()
+      });
+      $('manualEntry').classList.remove('open');
+    }
     await saveSessions();
     renderLog();
     renderSummary();
-    $('manualEntry').classList.remove('open');
+  });
+
+  $('cancelManual').addEventListener('click', () => cancelManualEdit());
+
+  $('logShowAllToggle').addEventListener('click', () => {
+    showAllSessions = !showAllSessions;
+    renderLog();
+  });
+
+  $('tripShowAllToggle').addEventListener('click', () => {
+    showAllTrips = !showAllTrips;
+    renderTripList();
   });
 
   $('fySelect').addEventListener('change', renderSummary);
@@ -921,6 +1200,15 @@
   $('tripOdoStart').addEventListener('input', updateTripKmPreview);
   $('tripOdoEnd').addEventListener('input', updateTripKmPreview);
 
+  function tripDuplicateExists(date, odoStart, odoEnd, excludeId) {
+    return trips.some(t => {
+      if (t.id === excludeId) return false;
+      if (t.date !== date) return false;
+      // overlapping odometer range on the same day means the same driving has been logged twice
+      return odoStart < t.odoEnd && t.odoStart < odoEnd;
+    });
+  }
+
   $('saveTrip').addEventListener('click', async () => {
     const date = $('tripDate').value;
     const origin = $('tripOrigin').value.trim();
@@ -929,23 +1217,39 @@
     const odoStart = parseFloat($('tripOdoStart').value);
     const odoEnd = parseFloat($('tripOdoEnd').value);
     if (!date || !origin || !destination || !purpose || isNaN(odoStart) || isNaN(odoEnd) || odoEnd < odoStart) {
+      alert('Fill in every field, with an end odometer reading equal to or greater than the start.');
       return;
     }
-    trips.push({
-      id: 't' + Date.now(),
-      date, origin, destination, purpose, odoStart, odoEnd
-    });
+    if (tripDuplicateExists(date, odoStart, odoEnd, editingTripId)) {
+      alert('This overlaps with an existing trip on the same day (same odometer range). Check the readings or edit the existing trip instead.');
+      return;
+    }
+    if (editingTripId) {
+      const t = trips.find(x => x.id === editingTripId);
+      if (t) {
+        t.date = date; t.origin = origin; t.destination = destination;
+        t.purpose = purpose; t.odoStart = odoStart; t.odoEnd = odoEnd;
+      }
+      cancelTripEdit();
+    } else {
+      trips.push({
+        id: 't' + Date.now(),
+        date, origin, destination, purpose, odoStart, odoEnd
+      });
+      // reset form
+      $('tripOrigin').value = '';
+      $('tripDestination').value = '';
+      $('tripPurpose').value = '';
+      $('tripOdoStart').value = '';
+      $('tripOdoEnd').value = '';
+      $('tripKmPreview').textContent = '';
+    }
     await saveTrips();
     renderTripList();
     renderSummary();
-    // reset form
-    $('tripOrigin').value = '';
-    $('tripDestination').value = '';
-    $('tripPurpose').value = '';
-    $('tripOdoStart').value = '';
-    $('tripOdoEnd').value = '';
-    $('tripKmPreview').textContent = '';
   });
+
+  $('cancelTrip').addEventListener('click', () => cancelTripEdit());
 
   async function init() {
     await loadData();
@@ -954,10 +1258,13 @@
     renderLog();
     renderSummary();
     renderTripList();
+    await initAutoSave();
     // default manual date to today
     $('manDate').value = new Date().toISOString().slice(0, 10);
     $('tripDate').value = new Date().toISOString().slice(0, 10);
   }
+
+  $('autoSaveToggleBtn').addEventListener('click', toggleAutoSave);
 
   init();
 })();
