@@ -1,0 +1,966 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Work Location Tracker</title>
+<style>
+  :root {
+    --ink: #1c2230;
+    --paper: #f6f5f2;
+    --panel: #ffffff;
+    --line: #dcd9d2;
+    --home: #2f6b5e;
+    --home-soft: #e4efec;
+    --office: #7a4a2b;
+    --office-soft: #f2e8de;
+    --muted: #6b6f76;
+    --danger: #9b3b3b;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    background: var(--paper);
+    color: var(--ink);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  #app { max-width: 480px; margin: 0 auto; padding: 20px 18px 60px; }
+
+  header.top {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    margin-bottom: 18px;
+  }
+  header.top h1 {
+    font-size: 19px;
+    font-weight: 700;
+    margin: 0;
+    letter-spacing: -0.01em;
+  }
+  header.top .fy-label {
+    font-size: 12px;
+    color: var(--muted);
+  }
+
+  .status-card {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 18px;
+    margin-bottom: 16px;
+  }
+
+  .status-idle .status-text { color: var(--muted); font-size: 14px; }
+  .status-active .status-text { font-size: 13px; color: var(--muted); margin-bottom: 2px; }
+  .status-active .status-elapsed { font-size: 34px; font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+
+  .tag {
+    display: inline-block;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 3px 10px;
+    border-radius: 20px;
+    margin-bottom: 8px;
+  }
+  .tag.home { background: var(--home-soft); color: var(--home); }
+  .tag.office { background: var(--office-soft); color: var(--office); }
+
+  .clock-buttons { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 14px; }
+
+  button {
+    font-family: inherit;
+    border: none;
+    cursor: pointer;
+  }
+
+  .clock-btn {
+    padding: 20px 12px;
+    border-radius: 14px;
+    font-size: 16px;
+    font-weight: 700;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    transition: transform 0.08s ease;
+  }
+  .clock-btn:active { transform: scale(0.97); }
+  .clock-btn.home { background: var(--home); color: white; }
+  .clock-btn.office { background: var(--office); color: white; }
+  .clock-btn small { font-weight: 500; font-size: 11px; opacity: 0.85; }
+
+  .clock-off-btn {
+    width: 100%;
+    padding: 16px;
+    border-radius: 14px;
+    font-size: 16px;
+    font-weight: 700;
+    background: var(--ink);
+    color: white;
+    margin-bottom: 14px;
+  }
+  .clock-off-btn:active { transform: scale(0.98); }
+
+  .manual-toggle {
+    text-align: center;
+    font-size: 13px;
+    color: var(--muted);
+    text-decoration: underline;
+    margin-bottom: 4px;
+    cursor: pointer;
+  }
+
+  .manual-entry {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 16px;
+    margin-bottom: 16px;
+    display: none;
+  }
+  .manual-entry.open { display: block; }
+  .manual-entry .row { display: flex; gap: 8px; margin-bottom: 10px; }
+  .manual-entry label { display: block; font-size: 11px; color: var(--muted); margin-bottom: 4px; }
+  .manual-entry input, .manual-entry select {
+    width: 100%;
+    padding: 9px 10px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    font-size: 14px;
+    font-family: inherit;
+    background: var(--paper);
+    color: var(--ink);
+  }
+  .manual-entry .save-manual {
+    width: 100%;
+    padding: 12px;
+    border-radius: 10px;
+    background: var(--ink);
+    color: white;
+    font-weight: 600;
+    font-size: 14px;
+  }
+
+  .section-label {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--muted);
+    margin: 22px 0 8px 2px;
+  }
+
+  .summary-card {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 16px;
+    margin-bottom: 16px;
+  }
+  .summary-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 9px 0;
+    border-bottom: 1px solid var(--line);
+  }
+  .summary-row:last-child { border-bottom: none; }
+  .summary-row .label { display: flex; align-items: center; gap: 8px; font-size: 14px; }
+  .dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+  .dot.home { background: var(--home); }
+  .dot.office { background: var(--office); }
+  .summary-row .value { font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .summary-row.total .value { font-size: 17px; }
+
+  .fy-select {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 10px;
+  }
+  .fy-select select {
+    flex: 1;
+    padding: 9px 10px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    font-size: 14px;
+    font-family: inherit;
+    background: var(--panel);
+    color: var(--ink);
+  }
+
+  .export-btn {
+    width: 100%;
+    padding: 13px;
+    border-radius: 10px;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    color: var(--ink);
+    font-weight: 600;
+    font-size: 14px;
+    margin-bottom: 8px;
+  }
+  .export-btn:active { transform: scale(0.98); }
+
+  .log-list { display: flex; flex-direction: column; gap: 6px; }
+  .log-item {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 10px 12px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 13px;
+  }
+  .log-item .left { display: flex; align-items: center; gap: 8px; }
+  .log-item .date { font-weight: 600; }
+  .log-item .time { color: var(--muted); font-size: 12px; }
+  .log-item .dur { font-weight: 600; font-variant-numeric: tabular-nums; }
+  .log-item .del {
+    background: none;
+    color: var(--danger);
+    font-size: 12px;
+    padding: 4px 6px;
+    margin-left: 6px;
+  }
+
+  .empty-note { font-size: 13px; color: var(--muted); text-align: center; padding: 20px 0; }
+
+  .trip-entry {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 16px;
+    margin-bottom: 16px;
+  }
+  .trip-entry label { display: block; font-size: 11px; color: var(--muted); margin-bottom: 4px; }
+  .trip-entry input {
+    width: 100%;
+    padding: 9px 10px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    font-size: 14px;
+    font-family: inherit;
+    background: var(--paper);
+    color: var(--ink);
+  }
+  .trip-entry .row { display: flex; gap: 8px; margin-bottom: 10px; }
+  .trip-entry .row > div { flex: 1; }
+  .trip-km-preview {
+    font-size: 12px;
+    color: var(--muted);
+    margin-bottom: 10px;
+    min-height: 16px;
+  }
+  .trip-km-preview strong { color: var(--ink); }
+  .save-trip {
+    width: 100%;
+    padding: 12px;
+    border-radius: 10px;
+    background: var(--ink);
+    color: white;
+    font-weight: 600;
+    font-size: 14px;
+  }
+
+  .trip-item {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 10px 12px;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    font-size: 13px;
+    margin-bottom: 6px;
+  }
+  .trip-item .route { font-weight: 600; }
+  .trip-item .purpose { color: var(--muted); font-size: 12px; margin-top: 2px; }
+  .trip-item .date { color: var(--muted); font-size: 12px; margin-top: 2px; }
+  .trip-item .km { font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; margin-left: 10px; }
+  .trip-item .del {
+    background: none;
+    color: var(--danger);
+    font-size: 12px;
+    padding: 4px 0 0;
+    display: block;
+    text-align: right;
+  }
+
+  .print-only { display: none; }
+
+  @media print {
+    body { background: white; }
+    .no-print { display: none !important; }
+    .print-only { display: block; }
+    #app { max-width: 100%; padding: 0; }
+  }
+</style>
+</head>
+<body>
+<div id="app">
+
+  <header class="top no-print">
+    <h1>Work Location</h1>
+    <span class="fy-label" id="currentFyLabel"></span>
+  </header>
+
+  <div class="status-card no-print" id="statusCard">
+    <!-- filled by JS -->
+  </div>
+
+  <div class="clock-buttons no-print" id="clockButtons">
+    <button class="clock-btn home" id="btnHome">
+      <span>🏠</span>
+      Clock in — Home
+    </button>
+    <button class="clock-btn office" id="btnOffice">
+      <span>🏢</span>
+      Clock in — Office
+    </button>
+  </div>
+
+  <div class="manual-toggle no-print" id="manualToggle">Add a past day manually</div>
+
+  <div class="manual-entry no-print" id="manualEntry">
+    <div class="row">
+      <div style="flex:1">
+        <label>Date</label>
+        <input type="date" id="manDate">
+      </div>
+      <div style="flex:1">
+        <label>Location</label>
+        <select id="manLocation">
+          <option value="home">Home</option>
+          <option value="office">Office</option>
+        </select>
+      </div>
+    </div>
+    <div class="row">
+      <div style="flex:1">
+        <label>Start time</label>
+        <input type="time" id="manStart" value="09:00">
+      </div>
+      <div style="flex:1">
+        <label>End time</label>
+        <input type="time" id="manEnd" value="17:00">
+      </div>
+    </div>
+    <button class="save-manual" id="saveManual">Add entry</button>
+  </div>
+
+  <div class="section-label no-print">Financial year report</div>
+  <div class="summary-card no-print">
+    <div class="fy-select">
+      <select id="fySelect"></select>
+    </div>
+    <div class="summary-row">
+      <div class="label"><span class="dot home"></span>Home</div>
+      <div class="value" id="sumHomeHours">0h</div>
+    </div>
+    <div class="summary-row">
+      <div class="label"><span class="dot office"></span>Office</div>
+      <div class="value" id="sumOfficeHours">0h</div>
+    </div>
+    <div class="summary-row total">
+      <div class="label">Total logged</div>
+      <div class="value" id="sumTotalHours">0h</div>
+    </div>
+    <div class="summary-row">
+      <div class="label">Home days</div>
+      <div class="value" id="sumHomeDays">0</div>
+    </div>
+    <div class="summary-row">
+      <div class="label">Office days</div>
+      <div class="value" id="sumOfficeDays">0</div>
+    </div>
+    <div class="summary-row">
+      <div class="label">Vehicle km (work)</div>
+      <div class="value" id="sumKm">0 km</div>
+    </div>
+  </div>
+
+  <button class="export-btn no-print" id="exportBtn">Export PDF for this financial year</button>
+  <button class="export-btn no-print" id="backupExportBtn">Download data backup (.json)</button>
+  <button class="export-btn no-print" id="backupImportBtn">Restore data from backup</button>
+  <input type="file" id="backupFileInput" accept="application/json" style="display:none">
+
+  <div class="section-label no-print">Recent entries</div>
+  <div class="log-list no-print" id="logList"></div>
+
+  <div class="section-label no-print">Vehicle use for work</div>
+  <div class="trip-entry no-print" id="tripEntry">
+    <div class="row">
+      <div>
+        <label>Date</label>
+        <input type="date" id="tripDate">
+      </div>
+    </div>
+    <div class="row">
+      <div>
+        <label>Origin</label>
+        <input type="text" id="tripOrigin" placeholder="e.g. Home">
+      </div>
+      <div>
+        <label>Destination</label>
+        <input type="text" id="tripDestination" placeholder="e.g. Client site">
+      </div>
+    </div>
+    <div class="row">
+      <div>
+        <label>Purpose of trip</label>
+        <input type="text" id="tripPurpose" placeholder="e.g. Site inspection">
+      </div>
+    </div>
+    <div class="row">
+      <div>
+        <label>Start odometer (km)</label>
+        <input type="number" id="tripOdoStart" inputmode="decimal" placeholder="0">
+      </div>
+      <div>
+        <label>End odometer (km)</label>
+        <input type="number" id="tripOdoEnd" inputmode="decimal" placeholder="0">
+      </div>
+    </div>
+    <div class="trip-km-preview" id="tripKmPreview"></div>
+    <button class="save-trip" id="saveTrip">Add trip</button>
+  </div>
+
+  <div class="log-list no-print" id="tripList"></div>
+
+  <!-- Printable report, populated on export -->
+  <div class="print-only" id="printReport"></div>
+
+</div>
+
+<script>
+(function () {
+  const STORAGE_KEY = 'sessions';
+  const ACTIVE_KEY = 'active_session';
+  const TRIPS_KEY = 'trips';
+  let sessions = [];
+  let trips = [];
+  let active = null;
+  let tickTimer = null;
+
+  const $ = (id) => document.getElementById(id);
+
+  function fyForDate(d) {
+    // Australian financial year: 1 Jul - 30 Jun. Returns e.g. "2025-26"
+    const y = d.getFullYear();
+    const m = d.getMonth(); // 0-indexed, June = 5
+    const startYear = m >= 6 ? y : y - 1;
+    return `${startYear}-${String((startYear + 1) % 100).padStart(2, '0')}`;
+  }
+
+  function fyRange(fyLabel) {
+    const startYear = parseInt(fyLabel.split('-')[0], 10);
+    const start = new Date(startYear, 6, 1, 0, 0, 0);
+    const end = new Date(startYear + 1, 5, 30, 23, 59, 59);
+    return { start, end };
+  }
+
+  function fyDisplay(fyLabel) {
+    const startYear = parseInt(fyLabel.split('-')[0], 10);
+    return `FY ${startYear}–${startYear + 1}`;
+  }
+
+  function fmtDate(d) {
+    return d.toLocaleDateString('en-AU', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
+  }
+
+  function fmtTime(d) {
+    return d.toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit' });
+  }
+
+  function hoursBetween(startIso, endIso) {
+    return (new Date(endIso) - new Date(startIso)) / 3600000;
+  }
+
+  function fmtHours(h) {
+    const hrs = Math.floor(h);
+    const mins = Math.round((h - hrs) * 60);
+    if (mins === 0) return `${hrs}h`;
+    return `${hrs}h ${mins}m`;
+  }
+
+  async function loadData() {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      sessions = raw ? JSON.parse(raw) : [];
+    } catch (e) {
+      sessions = [];
+    }
+    try {
+      const raw = localStorage.getItem(ACTIVE_KEY);
+      active = raw ? JSON.parse(raw) : null;
+    } catch (e) {
+      active = null;
+    }
+    try {
+      const raw = localStorage.getItem(TRIPS_KEY);
+      trips = raw ? JSON.parse(raw) : [];
+    } catch (e) {
+      trips = [];
+    }
+  }
+
+  async function saveSessions() {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(sessions));
+    } catch (e) {
+      console.error('Save failed', e);
+    }
+  }
+
+  async function saveTrips() {
+    try {
+      localStorage.setItem(TRIPS_KEY, JSON.stringify(trips));
+    } catch (e) {
+      console.error('Save trips failed', e);
+    }
+  }
+
+  async function saveActive() {
+    try {
+      if (active) {
+        localStorage.setItem(ACTIVE_KEY, JSON.stringify(active));
+      } else {
+        localStorage.removeItem(ACTIVE_KEY);
+      }
+    } catch (e) {
+      console.error('Save active failed', e);
+    }
+  }
+
+  function populateFySelect() {
+    const sel = $('fySelect');
+    const now = new Date();
+    const currentFy = fyForDate(now);
+    const currentStartYear = parseInt(currentFy.split('-')[0], 10);
+    sel.innerHTML = '';
+    // offer current FY and previous 3
+    for (let i = 0; i < 4; i++) {
+      const startYear = currentStartYear - i;
+      const label = `${startYear}-${String((startYear + 1) % 100).padStart(2, '0')}`;
+      const opt = document.createElement('option');
+      opt.value = label;
+      opt.textContent = fyDisplay(label);
+      sel.appendChild(opt);
+    }
+    sel.value = currentFy;
+    $('currentFyLabel').textContent = fyDisplay(currentFy);
+  }
+
+  function renderStatus() {
+    const card = $('statusCard');
+    const clockButtons = $('clockButtons');
+    if (active) {
+      const loc = active.location;
+      card.className = 'status-card status-active';
+      card.innerHTML = `
+        <span class="tag ${loc}">${loc === 'home' ? 'Working from home' : 'Working from office'}</span>
+        <div class="status-text">Started ${fmtTime(new Date(active.start))}</div>
+        <div class="status-elapsed" id="elapsedDisplay">0h 00m</div>
+      `;
+      clockButtons.innerHTML = `<button class="clock-off-btn" id="btnClockOff" style="grid-column: 1 / -1;">Clock off</button>`;
+      clockButtons.style.gridTemplateColumns = '1fr';
+      $('btnClockOff').addEventListener('click', clockOff);
+      updateElapsed();
+      if (tickTimer) clearInterval(tickTimer);
+      tickTimer = setInterval(updateElapsed, 30000);
+    } else {
+      card.className = 'status-card status-idle';
+      card.innerHTML = `<div class="status-text">Not clocked in</div>`;
+      clockButtons.style.gridTemplateColumns = '1fr 1fr';
+      clockButtons.innerHTML = `
+        <button class="clock-btn home" id="btnHome"><span>🏠</span>Clock in — Home</button>
+        <button class="clock-btn office" id="btnOffice"><span>🏢</span>Clock in — Office</button>
+      `;
+      $('btnHome').addEventListener('click', () => clockIn('home'));
+      $('btnOffice').addEventListener('click', () => clockIn('office'));
+      if (tickTimer) clearInterval(tickTimer);
+    }
+  }
+
+  function updateElapsed() {
+    if (!active) return;
+    const el = $('elapsedDisplay');
+    if (!el) return;
+    const h = hoursBetween(active.start, new Date().toISOString());
+    const hrs = Math.floor(h);
+    const mins = Math.floor((h - hrs) * 60);
+    el.textContent = `${hrs}h ${String(mins).padStart(2, '0')}m`;
+  }
+
+  async function clockIn(location) {
+    if (active) return;
+    active = { location, start: new Date().toISOString() };
+    await saveActive();
+    renderStatus();
+  }
+
+  async function clockOff() {
+    if (!active) return;
+    const session = {
+      id: 's' + Date.now(),
+      location: active.location,
+      start: active.start,
+      end: new Date().toISOString()
+    };
+    sessions.push(session);
+    await saveSessions();
+    active = null;
+    await saveActive();
+    renderStatus();
+    renderLog();
+    renderSummary();
+  }
+
+  async function deleteSession(id) {
+    sessions = sessions.filter(s => s.id !== id);
+    await saveSessions();
+    renderLog();
+    renderSummary();
+  }
+
+  function renderLog() {
+    const list = $('logList');
+    const sorted = [...sessions].sort((a, b) => new Date(b.start) - new Date(a.start)).slice(0, 30);
+    if (sorted.length === 0) {
+      list.innerHTML = '<div class="empty-note">No entries yet. Clock in above or add a past day manually.</div>';
+      return;
+    }
+    list.innerHTML = sorted.map(s => {
+      const start = new Date(s.start);
+      const end = new Date(s.end);
+      const dur = hoursBetween(s.start, s.end);
+      return `
+        <div class="log-item">
+          <div class="left">
+            <span class="dot ${s.location}"></span>
+            <div>
+              <div class="date">${fmtDate(start)}</div>
+              <div class="time">${fmtTime(start)} – ${fmtTime(end)}</div>
+            </div>
+          </div>
+          <div style="display:flex; align-items:center;">
+            <div class="dur">${fmtHours(dur)}</div>
+            <button class="del" data-id="${s.id}">Remove</button>
+          </div>
+        </div>
+      `;
+    }).join('');
+    list.querySelectorAll('.del').forEach(btn => {
+      btn.addEventListener('click', () => deleteSession(btn.getAttribute('data-id')));
+    });
+  }
+
+  function sessionsInFy(fyLabel) {
+    const { start, end } = fyRange(fyLabel);
+    return sessions.filter(s => {
+      const d = new Date(s.start);
+      return d >= start && d <= end;
+    });
+  }
+
+  function tripsInFy(fyLabel) {
+    const { start, end } = fyRange(fyLabel);
+    return trips.filter(t => {
+      const d = new Date(t.date + 'T00:00:00');
+      return d >= start && d <= end;
+    });
+  }
+
+  function renderTripList() {
+    const list = $('tripList');
+    const sorted = [...trips].sort((a, b) => new Date(b.date) - new Date(a.date)).slice(0, 30);
+    if (sorted.length === 0) {
+      list.innerHTML = '<div class="empty-note">No trips logged yet.</div>';
+      return;
+    }
+    list.innerHTML = sorted.map(t => {
+      const d = new Date(t.date + 'T00:00:00');
+      const km = t.odoEnd - t.odoStart;
+      return `
+        <div class="trip-item">
+          <div>
+            <div class="route">${t.origin} → ${t.destination}</div>
+            <div class="purpose">${t.purpose}</div>
+            <div class="date">${fmtDate(d)}</div>
+          </div>
+          <div>
+            <div class="km">${km} km</div>
+            <button class="del" data-id="${t.id}">Remove</button>
+          </div>
+        </div>
+      `;
+    }).join('');
+    list.querySelectorAll('.del').forEach(btn => {
+      btn.addEventListener('click', () => deleteTrip(btn.getAttribute('data-id')));
+    });
+  }
+
+  async function deleteTrip(id) {
+    trips = trips.filter(t => t.id !== id);
+    await saveTrips();
+    renderTripList();
+    renderSummary();
+  }
+
+  function updateTripKmPreview() {
+    const start = parseFloat($('tripOdoStart').value);
+    const end = parseFloat($('tripOdoEnd').value);
+    const preview = $('tripKmPreview');
+    if (!isNaN(start) && !isNaN(end) && end >= start) {
+      preview.innerHTML = `Distance: <strong>${(end - start).toFixed(1)} km</strong>`;
+    } else {
+      preview.textContent = '';
+    }
+  }
+
+  function renderSummary() {
+    const fyLabel = $('fySelect').value;
+    const fySessions = sessionsInFy(fyLabel);
+    let homeHours = 0, officeHours = 0;
+    const homeDays = new Set(), officeDays = new Set();
+    fySessions.forEach(s => {
+      const h = hoursBetween(s.start, s.end);
+      const dayKey = new Date(s.start).toDateString();
+      if (s.location === 'home') {
+        homeHours += h;
+        homeDays.add(dayKey);
+      } else {
+        officeHours += h;
+        officeDays.add(dayKey);
+      }
+    });
+    $('sumHomeHours').textContent = fmtHours(homeHours);
+    $('sumOfficeHours').textContent = fmtHours(officeHours);
+    $('sumTotalHours').textContent = fmtHours(homeHours + officeHours);
+    $('sumHomeDays').textContent = homeDays.size;
+    $('sumOfficeDays').textContent = officeDays.size;
+
+    const fyTrips = tripsInFy(fyLabel);
+    const totalKm = fyTrips.reduce((sum, t) => sum + (t.odoEnd - t.odoStart), 0);
+    $('sumKm').textContent = `${totalKm.toFixed(1)} km`;
+  }
+
+  function buildPrintReport(fyLabel) {
+    const fySessions = sessionsInFy(fyLabel).sort((a, b) => new Date(a.start) - new Date(b.start));
+    let homeHours = 0, officeHours = 0;
+    const homeDays = new Set(), officeDays = new Set();
+    fySessions.forEach(s => {
+      const h = hoursBetween(s.start, s.end);
+      const dayKey = new Date(s.start).toDateString();
+      if (s.location === 'home') { homeHours += h; homeDays.add(dayKey); }
+      else { officeHours += h; officeDays.add(dayKey); }
+    });
+
+    const rows = fySessions.map(s => {
+      const start = new Date(s.start);
+      const end = new Date(s.end);
+      const h = hoursBetween(s.start, s.end);
+      return `<tr>
+        <td>${fmtDate(start)}</td>
+        <td>${s.location === 'home' ? 'Home' : 'Office'}</td>
+        <td>${fmtTime(start)} – ${fmtTime(end)}</td>
+        <td style="text-align:right">${fmtHours(h)}</td>
+      </tr>`;
+    }).join('');
+
+    const fyTrips = tripsInFy(fyLabel).sort((a, b) => new Date(a.date) - new Date(b.date));
+    const totalKm = fyTrips.reduce((sum, t) => sum + (t.odoEnd - t.odoStart), 0);
+    const tripRows = fyTrips.map(t => {
+      const d = new Date(t.date + 'T00:00:00');
+      const km = t.odoEnd - t.odoStart;
+      return `<tr>
+        <td>${fmtDate(d)}</td>
+        <td>${t.origin} → ${t.destination}</td>
+        <td>${t.purpose}</td>
+        <td style="text-align:right">${t.odoStart.toFixed(1)}</td>
+        <td style="text-align:right">${t.odoEnd.toFixed(1)}</td>
+        <td style="text-align:right">${km.toFixed(1)}</td>
+      </tr>`;
+    }).join('');
+
+    return `
+      <div style="font-family: -apple-system, Arial, sans-serif; color:#1c2230; max-width: 720px; margin: 0 auto; padding: 20px;">
+        <h1 style="font-size:20px; margin-bottom:2px;">Work Location Report</h1>
+        <div style="color:#6b6f76; font-size:13px; margin-bottom:18px;">${fyDisplay(fyLabel)} · Generated ${fmtDate(new Date())}</div>
+
+        <table style="width:100%; border-collapse:collapse; margin-bottom:20px;">
+          <tr><td style="padding:4px 0;">Home days</td><td style="text-align:right; font-weight:700;">${homeDays.size}</td></tr>
+          <tr><td style="padding:4px 0;">Home hours</td><td style="text-align:right; font-weight:700;">${fmtHours(homeHours)}</td></tr>
+          <tr><td style="padding:4px 0;">Office days</td><td style="text-align:right; font-weight:700;">${officeDays.size}</td></tr>
+          <tr><td style="padding:4px 0;">Office hours</td><td style="text-align:right; font-weight:700;">${fmtHours(officeHours)}</td></tr>
+          <tr><td style="padding:4px 0; border-top:1px solid #dcd9d2; padding-top:8px;">Total logged hours</td><td style="text-align:right; font-weight:700; border-top:1px solid #dcd9d2; padding-top:8px;">${fmtHours(homeHours + officeHours)}</td></tr>
+          <tr><td style="padding:4px 0;">Vehicle km (work use)</td><td style="text-align:right; font-weight:700;">${totalKm.toFixed(1)} km</td></tr>
+        </table>
+
+        <h2 style="font-size:15px; margin-bottom:8px;">Home / office days</h2>
+        <table style="width:100%; border-collapse:collapse; font-size:13px; margin-bottom:24px;">
+          <thead>
+            <tr style="border-bottom: 2px solid #1c2230;">
+              <th style="text-align:left; padding:6px 4px;">Date</th>
+              <th style="text-align:left; padding:6px 4px;">Location</th>
+              <th style="text-align:left; padding:6px 4px;">Time</th>
+              <th style="text-align:right; padding:6px 4px;">Duration</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rows || '<tr><td colspan="4" style="padding:12px 4px; color:#6b6f76;">No entries recorded for this financial year.</td></tr>'}
+          </tbody>
+        </table>
+
+        <h2 style="font-size:15px; margin-bottom:8px;">Vehicle trips</h2>
+        <table style="width:100%; border-collapse:collapse; font-size:13px;">
+          <thead>
+            <tr style="border-bottom: 2px solid #1c2230;">
+              <th style="text-align:left; padding:6px 4px;">Date</th>
+              <th style="text-align:left; padding:6px 4px;">Route</th>
+              <th style="text-align:left; padding:6px 4px;">Purpose</th>
+              <th style="text-align:right; padding:6px 4px;">Start odo</th>
+              <th style="text-align:right; padding:6px 4px;">End odo</th>
+              <th style="text-align:right; padding:6px 4px;">Km</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${tripRows || '<tr><td colspan="6" style="padding:12px 4px; color:#6b6f76;">No trips recorded for this financial year.</td></tr>'}
+          </tbody>
+        </table>
+      </div>
+    `;
+  }
+
+  function exportPdf() {
+    const fyLabel = $('fySelect').value;
+    $('printReport').innerHTML = buildPrintReport(fyLabel);
+    window.print();
+  }
+
+  // Manual entry toggle
+  $('manualToggle').addEventListener('click', () => {
+    $('manualEntry').classList.toggle('open');
+  });
+
+  $('saveManual').addEventListener('click', async () => {
+    const dateVal = $('manDate').value;
+    const loc = $('manLocation').value;
+    const startVal = $('manStart').value;
+    const endVal = $('manEnd').value;
+    if (!dateVal || !startVal || !endVal) return;
+    const start = new Date(`${dateVal}T${startVal}:00`);
+    const end = new Date(`${dateVal}T${endVal}:00`);
+    if (end <= start) return;
+    sessions.push({
+      id: 's' + Date.now(),
+      location: loc,
+      start: start.toISOString(),
+      end: end.toISOString()
+    });
+    await saveSessions();
+    renderLog();
+    renderSummary();
+    $('manualEntry').classList.remove('open');
+  });
+
+  $('fySelect').addEventListener('change', renderSummary);
+  $('exportBtn').addEventListener('click', exportPdf);
+
+  $('backupExportBtn').addEventListener('click', () => {
+    const data = { sessions, trips, active, exportedAt: new Date().toISOString() };
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `work-location-backup-${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  });
+
+  $('backupImportBtn').addEventListener('click', () => {
+    $('backupFileInput').click();
+  });
+
+  $('backupFileInput').addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    try {
+      const text = await file.text();
+      const data = JSON.parse(text);
+      if (!Array.isArray(data.sessions) || !Array.isArray(data.trips)) {
+        alert('This file does not look like a valid backup.');
+        return;
+      }
+      const merge = confirm('Merge with existing data? Choose Cancel to replace existing data instead.');
+      if (merge) {
+        const existingSessionIds = new Set(sessions.map(s => s.id));
+        const existingTripIds = new Set(trips.map(t => t.id));
+        data.sessions.forEach(s => { if (!existingSessionIds.has(s.id)) sessions.push(s); });
+        data.trips.forEach(t => { if (!existingTripIds.has(t.id)) trips.push(t); });
+      } else {
+        sessions = data.sessions;
+        trips = data.trips;
+      }
+      await saveSessions();
+      await saveTrips();
+      renderLog();
+      renderTripList();
+      renderSummary();
+      e.target.value = '';
+      alert('Backup restored.');
+    } catch (err) {
+      alert('Could not read that file.');
+    }
+  });
+
+  $('tripOdoStart').addEventListener('input', updateTripKmPreview);
+  $('tripOdoEnd').addEventListener('input', updateTripKmPreview);
+
+  $('saveTrip').addEventListener('click', async () => {
+    const date = $('tripDate').value;
+    const origin = $('tripOrigin').value.trim();
+    const destination = $('tripDestination').value.trim();
+    const purpose = $('tripPurpose').value.trim();
+    const odoStart = parseFloat($('tripOdoStart').value);
+    const odoEnd = parseFloat($('tripOdoEnd').value);
+    if (!date || !origin || !destination || !purpose || isNaN(odoStart) || isNaN(odoEnd) || odoEnd < odoStart) {
+      return;
+    }
+    trips.push({
+      id: 't' + Date.now(),
+      date, origin, destination, purpose, odoStart, odoEnd
+    });
+    await saveTrips();
+    renderTripList();
+    renderSummary();
+    // reset form
+    $('tripOrigin').value = '';
+    $('tripDestination').value = '';
+    $('tripPurpose').value = '';
+    $('tripOdoStart').value = '';
+    $('tripOdoEnd').value = '';
+    $('tripKmPreview').textContent = '';
+  });
+
+  async function init() {
+    await loadData();
+    populateFySelect();
+    renderStatus();
+    renderLog();
+    renderSummary();
+    renderTripList();
+    // default manual date to today
+    $('manDate').value = new Date().toISOString().slice(0, 10);
+    $('tripDate').value = new Date().toISOString().slice(0, 10);
+  }
+
+  init();
+})();
+</script>
+</body>
+</html>
